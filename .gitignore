@@ -1,0 +1,8 @@
+/target/
+
+**/*.rs.bk  # Backup-Dateien, falls du welche erzeugst
+Cargo.lock   # optional, manchmal will man Cargo.lock tracken
+
+.idea/
+.vscode/
+*.swp

@@ -1,0 +1,19 @@
+[package]
+name = "rushazam"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.6"
+bincode = "2.0.1"
+cpal = "0.16.0"
+hound = "3.5.1"
+plotters = "0.3.7"
+reqwest = "0.12.24"
+rodio = "0.21.1"
+rusqlite = "0.37.0"
+rustfft = "6.4.1"
+serde = "1.0.228"
+sled = "0.34.7"
+tokio = "1.48.0"
+tonic = "0.14.2"
