@@ -1,6 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dialoguer::{Input, Select, theme::ColorfulTheme};
 use hound;
+use rayon::{prelude::*, vec};
 use rustfft::Fft;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::collections::HashMap;
@@ -206,22 +207,22 @@ fn fourier_transform_spectrogramm(path: String) -> Vec<Vec<f32>> {
         i += hop_size;
     }
 
-    let mut magnitudes_per_frame: Vec<Vec<f32>> = Vec::new();
-
     let fft: Arc<dyn Fft<_>> = planner.plan_fft_forward(frame_size);
 
-    for frame in frames {
-        let mut buffer: Vec<Complex<f32>> =
-            frame.iter().map(|&x| Complex { re: x, im: 0.0 }).collect();
+    let magnitudes_per_frame: Vec<Vec<f32>> = frames
+        .par_iter()
+        .map(|frame| {
+            let mut buffer: Vec<Complex<f32>> =
+                frame.iter().map(|&x| Complex { re: x, im: 0.0 }).collect();
 
-        fft.process(&mut buffer);
+            fft.process(&mut buffer);
 
-        let mags: Vec<f32> = buffer
-            .iter()
-            .map(|c| (c.re.powi(2) + c.im.powi(2)).sqrt())
-            .collect();
-        magnitudes_per_frame.push(mags)
-    }
+            buffer
+                .iter()
+                .map(|c| (c.re.powi(2) + c.im.powi(2)).sqrt())
+                .collect::<Vec<f32>>()
+        })
+        .collect();
 
     magnitudes_per_frame
 }
