@@ -1,5 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use hound;
+use rustfft::{FftPlanner, num_complex::Complex};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -56,6 +57,22 @@ fn upload_audio_and_save() {
     }
 
     writer.finalize().unwrap();
+}
+
+fn fourier_transform_spectrogramm() {
+    let mut reader = hound::WavReader::open("input.wav").unwrap();
+    let samples: Vec<f32> = reader.samples::<i16>().map(|s| s.unwrap() as f32).collect();
+
+    let mut planner = FftPlanner::new();
+
+    let fft = planner.plan_fft_forward(samples.len());
+
+    let mut buffer: Vec<Complex<f32>> = samples
+        .iter()
+        .map(|&x| Complex { re: x, im: 0.0 })
+        .collect();
+
+    fft.process(&mut buffer);
 }
 
 /*
