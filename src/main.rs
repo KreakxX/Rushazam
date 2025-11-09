@@ -9,8 +9,9 @@ use std::thread;
 use std::time::Duration;
 
 fn main() {
-    let mut database: HashMap<u64, Vec<(String, usize)>> = HashMap::new();
-
+    let mut database: HashMap<u64, Vec<(usize, usize)>> = HashMap::new();
+    let mut song_ids: HashMap<String, usize> = HashMap::new();
+    let mut song_names: Vec<String> = Vec::new();
     loop {
         let options = &["add", "match"];
 
@@ -28,25 +29,34 @@ fn main() {
                 .with_prompt("Enter Path to save to ")
                 .interact_text()
                 .unwrap();
+            let song_id = if let Some(&id) = song_ids.get(&path) {
+                id
+            } else {
+                let id = song_names.len();
+                song_names.push(path.clone());
+                song_ids.insert(path.clone(), id);
+                id
+            };
             upload_audio_and_save(path.clone());
             thread::sleep(Duration::from_secs(15));
             let magnitudes_per_frame = fourier_transform_spectrogramm(path.clone());
             let constellationmap = create_constellation_map(magnitudes_per_frame);
             let fingerprints = generate_finger_prints(constellationmap);
-            add_song_to_database(&mut database, path, fingerprints);
+            add_song_to_database(&mut database, song_id, fingerprints);
         } else {
             let magnitudes_per_frame = fourier_transform_spectrogramm("input.wav".to_string());
             let constellationmap = create_constellation_map(magnitudes_per_frame);
             let fingerprints = generate_finger_prints(constellationmap);
 
-            let mut song_matches: HashMap<String, Vec<i32>> = HashMap::new();
+            let mut song_matches: HashMap<usize, Vec<i32>> = HashMap::new();
 
             for (hash, time) in fingerprints {
                 if let Some(matches) = database.get(&hash) {
-                    for (song, time_in_song) in matches {
+                    for (song_id, time_in_song) in matches {
                         let time_diff = *time_in_song as i32 - time as i32;
+
                         song_matches
-                            .entry(song.clone())
+                            .entry(*song_id)
                             .or_insert(Vec::new())
                             .push(time_diff);
                     }
@@ -55,7 +65,8 @@ fn main() {
             let mut best_song: Option<String> = None;
             let mut best_count = 0;
 
-            for (song_name, time_diffs) in song_matches {
+            for (song_id, time_diffs) in song_matches {
+                let song_name = &song_names[song_id];
                 // Zähle wie  die gleiche Differenz vorkommt
                 let mut diff_counts: HashMap<i32, usize> = HashMap::new();
 
@@ -66,7 +77,7 @@ fn main() {
                 if let Some(max_count) = diff_counts.values().max() {
                     if *max_count > best_count {
                         best_count = *max_count;
-                        best_song = Some(song_name);
+                        best_song = Some(song_name.to_string());
                     }
                 }
             }
@@ -84,15 +95,15 @@ fn main() {
 }
 
 fn add_song_to_database(
-    database: &mut HashMap<u64, Vec<(String, usize)>>,
-    song_name: String,
+    database: &mut HashMap<u64, Vec<(usize, usize)>>,
+    song_id: usize,
     fingerprints: Vec<(u64, usize)>,
 ) {
     for (hash, time) in fingerprints {
         database
             .entry(hash)
             .or_insert(Vec::new())
-            .push((song_name.clone(), time));
+            .push((song_id, time));
     }
 }
 
@@ -189,15 +200,26 @@ fn fourier_transform_spectrogramm(path: String) -> Vec<Vec<f32>> {
 
 fn create_constellation_map(magnitudes_per_frame: Vec<Vec<f32>>) -> Vec<(usize, usize, f32)> {
     let mut peaks: Vec<(usize, usize, f32)> = Vec::new();
-    let threshold = 0.01;
+    let threshold = 0.1;
 
     for (time_idx, frame) in magnitudes_per_frame.iter().enumerate() {
-        for (freq_index, &magnitude) in frame.iter().enumerate() {
+        let mut peaks_in_frame: Vec<(usize, f32)> = frame
+            .iter()
+            .enumerate()
+            .filter(|(_, mag)| **mag > threshold)
+            .map(|(i, &mag)| (i, mag))
+            .collect();
+
+        peaks_in_frame.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+        peaks_in_frame.truncate(5);
+
+        for (freq_index, magnitude) in peaks_in_frame {
             if magnitude > threshold && is_peak(&magnitudes_per_frame, time_idx, freq_index) {
                 peaks.push((time_idx, freq_index, magnitude))
             };
         }
     }
+
     peaks
 }
 
@@ -237,11 +259,11 @@ fn generate_finger_prints(peaks: Vec<(usize, usize, f32)>) -> Vec<(u64, usize)> 
             let (time_target, freq_target, _) = peaks[j];
             let delta_time = time_target - time_anchor;
 
-            if delta_time >= 5 && delta_time <= 50 {
+            if delta_time >= 5 && delta_time <= 40 {
                 let hash = createhash(freq_anchor, freq_target, delta_time);
                 finger_prints.push((hash, time_anchor));
             }
-            if delta_time > 50 {
+            if delta_time > 40 {
                 break;
             }
         }
