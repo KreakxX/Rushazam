@@ -1,7 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dialoguer::{Input, Select, theme::ColorfulTheme};
 use hound;
-use rodio::buffer;
 use rustfft::Fft;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::collections::HashMap;
@@ -32,9 +31,54 @@ fn main() {
             upload_audio_and_save(path.clone());
             thread::sleep(Duration::from_secs(15));
             let magnitudes_per_frame = fourier_transform_spectrogramm(path.clone());
-            let constellationMap = create_constellation_map(magnitudes_per_frame);
-            let fingerprints = generate_finger_prints(constellationMap);
+            let constellationmap = create_constellation_map(magnitudes_per_frame);
+            let fingerprints = generate_finger_prints(constellationmap);
             add_song_to_database(&mut database, path, fingerprints);
+        } else {
+            let magnitudes_per_frame = fourier_transform_spectrogramm("input.wav".to_string());
+            let constellationmap = create_constellation_map(magnitudes_per_frame);
+            let fingerprints = generate_finger_prints(constellationmap);
+
+            let mut song_matches: HashMap<String, Vec<i32>> = HashMap::new();
+
+            for (hash, time) in fingerprints {
+                if let Some(matches) = database.get(&hash) {
+                    for (song, time_in_song) in matches {
+                        let time_diff = *time_in_song as i32 - time as i32;
+                        song_matches
+                            .entry(song.clone())
+                            .or_insert(Vec::new())
+                            .push(time_diff);
+                    }
+                }
+            }
+            let mut best_song: Option<String> = None;
+            let mut best_count = 0;
+
+            for (song_name, time_diffs) in song_matches {
+                // Zähle wie  die gleiche Differenz vorkommt
+                let mut diff_counts: HashMap<i32, usize> = HashMap::new();
+
+                for diff in time_diffs {
+                    *diff_counts.entry(diff).or_insert(0) += 1;
+                }
+
+                if let Some(max_count) = diff_counts.values().max() {
+                    if *max_count > best_count {
+                        best_count = *max_count;
+                        best_song = Some(song_name);
+                    }
+                }
+            }
+
+            if best_count >= 5 {
+                println!(
+                    "Match found: {:?} with {} aligned matches",
+                    best_song, best_count
+                );
+            } else {
+                println!("No match found (best: {} matches)", best_count);
+            }
         }
     }
 }
@@ -194,7 +238,7 @@ fn generate_finger_prints(peaks: Vec<(usize, usize, f32)>) -> Vec<(u64, usize)> 
             let delta_time = time_target - time_anchor;
 
             if delta_time >= 5 && delta_time <= 50 {
-                let hash = createHash(freq_anchor, freq_target, delta_time);
+                let hash = createhash(freq_anchor, freq_target, delta_time);
                 finger_prints.push((hash, time_anchor));
             }
             if delta_time > 50 {
@@ -205,11 +249,9 @@ fn generate_finger_prints(peaks: Vec<(usize, usize, f32)>) -> Vec<(u64, usize)> 
     finger_prints
 }
 
-fn createHash(freq1: usize, freq2: usize, delta_time: usize) -> u64 {
+fn createhash(freq1: usize, freq2: usize, delta_time: usize) -> u64 {
     ((freq1 as u64) << 32) | ((freq2 as u64) << 16) | (delta_time as u64)
 }
-
-fn match_audio() {}
 
 /*
     How Shazam Works
