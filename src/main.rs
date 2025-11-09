@@ -1,15 +1,58 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use dialoguer::{Input, Select, theme::ColorfulTheme};
 use hound;
+use rodio::buffer;
+use rustfft::Fft;
 use rustfft::{FftPlanner, num_complex::Complex};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 fn main() {
-    upload_audio_and_save();
+    let mut database: HashMap<u64, Vec<(String, usize)>> = HashMap::new();
+
+    loop {
+        let options = &["add", "match"];
+
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Choose your Action")
+            .default(0)
+            .items(&options[..])
+            .interact()
+            .unwrap();
+
+        let action = options[selection];
+
+        if action == "add" {
+            let path: String = Input::new()
+                .with_prompt("Enter Path to save to ")
+                .interact_text()
+                .unwrap();
+            upload_audio_and_save(path.clone());
+            thread::sleep(Duration::from_secs(15));
+            let magnitudes_per_frame = fourier_transform_spectrogramm(path.clone());
+            let constellationMap = create_constellation_map(magnitudes_per_frame);
+            let fingerprints = generate_finger_prints(constellationMap);
+            add_song_to_database(&mut database, path, fingerprints);
+        }
+    }
 }
 
-fn upload_audio_and_save() {
+fn add_song_to_database(
+    database: &mut HashMap<u64, Vec<(String, usize)>>,
+    song_name: String,
+    fingerprints: Vec<(u64, usize)>,
+) {
+    for (hash, time) in fingerprints {
+        database
+            .entry(hash)
+            .or_insert(Vec::new())
+            .push((song_name.clone(), time));
+    }
+}
+
+fn upload_audio_and_save(path: String) {
     let host = cpal::default_host();
 
     let device = host
@@ -49,7 +92,7 @@ fn upload_audio_and_save() {
         sample_format: hound::SampleFormat::Int,
     };
 
-    let mut writer = hound::WavWriter::create("input.wav", spec).unwrap();
+    let mut writer = hound::WavWriter::create(path, spec).unwrap();
 
     for &sample in samples_vec.iter() {
         let amplitude = (sample * i16::MAX as f32) as i16;
@@ -59,21 +102,114 @@ fn upload_audio_and_save() {
     writer.finalize().unwrap();
 }
 
-fn fourier_transform_spectrogramm() {
-    let mut reader = hound::WavReader::open("input.wav").unwrap();
-    let samples: Vec<f32> = reader.samples::<i16>().map(|s| s.unwrap() as f32).collect();
+fn fourier_transform_spectrogramm(path: String) -> Vec<Vec<f32>> {
+    let mut reader = hound::WavReader::open(path).unwrap();
+    let samples: Vec<f32> = reader
+        .samples::<i16>()
+        .map(|s: Result<i16, hound::Error>| s.unwrap() as f32)
+        .collect();
 
     let mut planner = FftPlanner::new();
 
-    let fft = planner.plan_fft_forward(samples.len());
+    let frame_size = 1024; // typical frame size
+    let hop_size = 512;
 
-    let mut buffer: Vec<Complex<f32>> = samples
-        .iter()
-        .map(|&x| Complex { re: x, im: 0.0 })
-        .collect();
+    let mut frames: Vec<&[f32]> = Vec::new();
 
-    fft.process(&mut buffer);
+    let mut i = 0;
+
+    while i + frame_size <= samples.len() {
+        frames.push(&samples[i..i + frame_size]);
+        i += hop_size;
+    }
+
+    let mut magnitudes_per_frame: Vec<Vec<f32>> = Vec::new();
+
+    let fft: Arc<dyn Fft<_>> = planner.plan_fft_forward(frame_size);
+
+    for frame in frames {
+        let mut buffer: Vec<Complex<f32>> =
+            frame.iter().map(|&x| Complex { re: x, im: 0.0 }).collect();
+
+        fft.process(&mut buffer);
+
+        let mags: Vec<f32> = buffer
+            .iter()
+            .map(|c| (c.re.powi(2) + c.im.powi(2)).sqrt())
+            .collect();
+        magnitudes_per_frame.push(mags)
+    }
+
+    magnitudes_per_frame
 }
+
+fn create_constellation_map(magnitudes_per_frame: Vec<Vec<f32>>) -> Vec<(usize, usize, f32)> {
+    let mut peaks: Vec<(usize, usize, f32)> = Vec::new();
+    let threshold = 0.01;
+
+    for (time_idx, frame) in magnitudes_per_frame.iter().enumerate() {
+        for (freq_index, &magnitude) in frame.iter().enumerate() {
+            if magnitude > threshold && is_peak(&magnitudes_per_frame, time_idx, freq_index) {
+                peaks.push((time_idx, freq_index, magnitude))
+            };
+        }
+    }
+    peaks
+}
+
+fn is_peak(magnitudes_per_frame: &Vec<Vec<f32>>, time_idx: usize, freq_idx: usize) -> bool {
+    let current = magnitudes_per_frame[time_idx][freq_idx];
+
+    for t in time_idx.saturating_sub(1)..=time_idx.saturating_add(1) {
+        if t >= magnitudes_per_frame.len() {
+            continue;
+        }
+
+        for f in freq_idx.saturating_sub(1)..=freq_idx.saturating_add(1) {
+            if f >= magnitudes_per_frame[t].len() {
+                continue;
+            }
+
+            if t == time_idx && f == freq_idx {
+                continue;
+            }
+
+            if magnitudes_per_frame[t][f] > current {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+fn generate_finger_prints(peaks: Vec<(usize, usize, f32)>) -> Vec<(u64, usize)> {
+    let mut finger_prints = Vec::new();
+
+    for i in 0..peaks.len() {
+        let (time_anchor, freq_anchor, _) = peaks[i];
+
+        for j in (i + 1)..peaks.len() {
+            let (time_target, freq_target, _) = peaks[j];
+            let delta_time = time_target - time_anchor;
+
+            if delta_time >= 5 && delta_time <= 50 {
+                let hash = createHash(freq_anchor, freq_target, delta_time);
+                finger_prints.push((hash, time_anchor));
+            }
+            if delta_time > 50 {
+                break;
+            }
+        }
+    }
+    finger_prints
+}
+
+fn createHash(freq1: usize, freq2: usize, delta_time: usize) -> u64 {
+    ((freq1 as u64) << 32) | ((freq2 as u64) << 16) | (delta_time as u64)
+}
+
+fn match_audio() {}
 
 /*
     How Shazam Works
