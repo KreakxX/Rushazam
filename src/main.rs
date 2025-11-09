@@ -47,7 +47,7 @@ fn main() {
 
             // now record the audio and save it as a wav file
             upload_audio_and_save(path.clone());
-            thread::sleep(Duration::from_secs(15));
+            thread::sleep(Duration::from_secs(25));
 
             // afterwards calculate the fourier_transform spectogramm neccessary for getting all the frequency spikes by calculating and generating a graph with frequency and time
             let magnitudes_per_frame = fourier_transform_spectrogramm(path.clone());
@@ -160,7 +160,7 @@ fn upload_audio_and_save(path: String) {
     stream.play().unwrap();
 
     // stop after 10 sec
-    thread::sleep(Duration::from_secs(10));
+    thread::sleep(Duration::from_secs(20));
 
     // stop the stream
     drop(stream);
@@ -312,9 +312,6 @@ fn createhash(freq1: usize, freq2: usize, delta_time: usize) -> u64 {
 }
 
 /*
-    How Shazam Works
-
-    1 Channel Mono
-    Sample Rate 44100 Hz
-
+Multi Threading == more speed
+Peak Regulation == more memory & more speed
 */
