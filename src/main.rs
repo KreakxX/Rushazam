@@ -286,12 +286,14 @@ fn generate_finger_prints(peaks: Vec<(usize, usize, f32)>) -> Vec<(u64, usize)> 
     let mut finger_prints = Vec::new();
 
     for i in 0..peaks.len() {
+        // create paris from the anchor to the next peaks
         let (time_anchor, freq_anchor, _) = peaks[i];
 
         for j in (i + 1)..peaks.len() {
             let (time_target, freq_target, _) = peaks[j];
             let delta_time = time_target - time_anchor;
 
+            // but only take the next peaks in a give range and push them
             if delta_time >= 5 && delta_time <= 50 {
                 let hash = createhash(freq_anchor, freq_target, delta_time);
                 finger_prints.push((hash, time_anchor));
