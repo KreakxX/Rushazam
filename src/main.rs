@@ -1,7 +1,7 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use dialoguer::{Input, Select, theme::ColorfulTheme};
 use hound;
-use rayon::{prelude::*, vec};
+use rayon::prelude::*;
 use rustfft::Fft;
 use rustfft::{FftPlanner, num_complex::Complex};
 use std::collections::HashMap;
